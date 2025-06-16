@@ -19,8 +19,8 @@
   }
   #game {
     position: relative;
-    width: 560px;  /* 28 colunas * 20px */
-    height: 620px; /* 31 linhas * 20px */
+    width: 560px; 
+    height: 620px;
     background: #000;
     border: 4px solid #2222ff;
   }
@@ -88,7 +88,6 @@
     "############################"
   ];
 
-  // Ajusta para 31 linhas preenchendo com paredes
   while (mapData.length < 31) {
     mapData.push("############################");
   }
@@ -107,7 +106,6 @@
 
   const map = mapData.map(row => row.split(''));
 
-  // Sons simples em Web Audio API
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
   function playSound(freq, duration = 100) {
@@ -174,15 +172,13 @@
       ctx.lineTo(px - tileSize / 2 + 2, py + tileSize / 2 - 2);
       ctx.closePath();
       ctx.fill();
-
-      // Olhos
+      
       ctx.fillStyle = 'white';
       ctx.beginPath();
       ctx.ellipse(px - 5, py - 3, 5, 7, 0, 0, 2 * Math.PI);
       ctx.ellipse(px + 5, py - 3, 5, 7, 0, 0, 2 * Math.PI);
       ctx.fill();
 
-      // Pupilas
       const offsetX = Math.sign(pacman.x - this.x) * 2;
       const offsetY = Math.sign(pacman.y - this.y) * 2;
       ctx.fillStyle = 'black';
@@ -245,7 +241,7 @@
     while (queue.length) {
       const { x, y } = queue.shift();
       if (x === targetX && y === targetY) {
-        // Reconstruir caminho
+
         const path = [];
         let curX = x;
         let curY = y;
@@ -276,7 +272,7 @@
         }
       }
     }
-    return null; // sem caminho
+    return null;
   }
 
   function canMove(x, y) {
@@ -286,7 +282,6 @@
   }
 
   function updatePacman() {
-    // Atualiza direção se possível
     if (canMove(pacman.x + pacman.nextDx, pacman.y + pacman.nextDy)) {
       pacman.dx = pacman.nextDx;
       pacman.dy = pacman.nextDy;
@@ -305,7 +300,6 @@
     ctx.fillStyle = "yellow";
     ctx.beginPath();
 
-    // Animar boca
     let angle1, angle2;
     if (pacman.dx === 1) {
       angle1 = (openMouth * Math.PI * 2) / 3;
@@ -347,7 +341,7 @@
       playSound(660, 150);
       ghosts.forEach(g => {
         g.frightened = true;
-        g.frightenedCounter = 300; // dura 5 segundos (60 FPS * 5)
+        g.frightenedCounter = 300; 
       });
     }
   }
@@ -388,7 +382,6 @@
   }
 
   function resetGame() {
-    // Resetar mapa e personagem
     for (let y = 0; y < rows; y++) {
       for (let x = 0; x < cols; x++) {
         if (mapData[y][x] === '.') map[y][x] = '.';
@@ -414,7 +407,6 @@
     draw();
   }
 
-  // Controle via teclado
   window.addEventListener("keydown", e => {
     switch (e.key) {
       case "ArrowUp":
@@ -440,7 +432,6 @@
     }
   });
 
-  // Loop principal
   function gameLoop() {
     update();
     requestAnimationFrame(gameLoop);
