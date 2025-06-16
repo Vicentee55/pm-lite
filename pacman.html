@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pac-Man com IA Avançada</title>
+<style>
+  body {
+    background: black;
+    margin: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    user-select: none;
+    overflow: hidden;
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    color: white;
+  }
+  #game {
+    position: relative;
+    width: 560px;  /* 28 colunas * 20px */
+    height: 620px; /* 31 linhas * 20px */
+    background: #000;
+    border: 4px solid #2222ff;
+  }
+  canvas {
+    display: block;
+    background: black;
+  }
+  #scoreboard {
+    position: absolute;
+    top: -40px;
+    left: 0;
+    width: 100%;
+    text-align: center;
+    font-size: 20px;
+  }
+  #gameOver {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 50px;
+    color: #ff2222;
+    display: none;
+  }
+</style>
+</head>
+<body>
+  <div id="game">
+    <div id="scoreboard">Pontos: 0</div>
+    <canvas id="canvas" width="560" height="620"></canvas>
+    <div id="gameOver">Game Over! Pressione R para reiniciar</div>
+  </div>
+
+<script>
+(() => {
+  const mapData = [
+    "############################",
+    "#............##............#",
+    "#.####.#####.##.#####.####.#",
+    "#G####.#####.##.#####.####G#",
+    "#.####.#####.##.#####.####.#",
+    "#..........................#",
+    "#.####.##.########.##.####.#",
+    "#.####.##.########.##.####.#",
+    "#......##....##....##......#",
+    "######.##### ## #####.######",
+    "     #.##### ## #####.#     ",
+    "     #.##          ##.#     ",
+    "     #.## ###--### ##.#     ",
+    "######.## #      # ##.######",
+    "      .   #      #   .      ",
+    "######.## #      # ##.######",
+    "     #.## ######## ##.#     ",
+    "     #.##          ##.#     ",
+    "     #.## ######## ##.#     ",
+    "######.## ######## ##.######",
+    "#............##............#",
+    "#.####.#####.##.#####.####.#",
+    "#G..##................##..G#",
+    "###.##.##.########.##.##.###",
+    "#......##....##....##......#",
+    "#.##########.##.##########.#",
+    "#.##########.##.##########.#",
+    "#..........................#",
+    "############################"
+  ];
+
+  // Ajusta para 31 linhas preenchendo com paredes
+  while (mapData.length < 31) {
+    mapData.push("############################");
+  }
+
+  const rows = mapData.length;
+  const cols = mapData[0].length;
+  const tileSize = 20;
+
+  let score = 0;
+  let gameOver = false;
+
+  const canvas = document.getElementById("canvas");
+  const ctx = canvas.getContext("2d");
+  const scoreboard = document.getElementById("scoreboard");
+  const gameOverDiv = document.getElementById("gameOver");
+
+  const map = mapData.map(row => row.split(''));
+
+  // Sons simples em Web Audio API
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+  function playSound(freq, duration = 100) {
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    oscillator.frequency.value = freq;
+    oscillator.type = 'square';
+    gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    oscillator.start();
+    oscillator.stop(audioCtx.currentTime + duration / 1000);
+  }
+
+  function drawMap() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) {
+        const tile = map[y][x];
+        const px = x * tileSize;
+        const py = y * tileSize;
+        if (tile === '#') {
+          ctx.fillStyle = '#0000ff';
+          ctx.fillRect(px, py, tileSize, tileSize);
+        } else if (tile === '.') {
+          ctx.fillStyle = '#ffff00';
+          ctx.beginPath();
+          ctx.arc(px + tileSize / 2, py + tileSize / 2, 3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+  }
+
+  const pacman = {
+    x: 13,
+    y: 23,
+    dx: 0,
+    dy: 0,
+    nextDx: 0,
+    nextDy: 0,
+    radius: tileSize / 2 - 2,
+    mouthOpen: 0,
+    mouthDir: 1
+  };
+
+  class Ghost {
+    constructor(x, y, color) {
+      this.x = x;
+      this.y = y;
+      this.color = color;
+      this.moveCooldown = 0;
+      this.frightened = false;
+      this.frightenedCounter = 0;
+    }
+
+    draw() {
+      const px = this.x * tileSize + tileSize / 2;
+      const py = this.y * tileSize + tileSize / 2;
+      ctx.fillStyle = this.frightened ? '#00ffff' : this.color;
+      ctx.beginPath();
+      ctx.arc(px, py, tileSize / 2 - 2, Math.PI, 0);
+      ctx.lineTo(px + tileSize / 2 - 2, py + tileSize / 2 - 2);
+      ctx.lineTo(px - tileSize / 2 + 2, py + tileSize / 2 - 2);
+      ctx.closePath();
+      ctx.fill();
+
+      // Olhos
+      ctx.fillStyle = 'white';
+      ctx.beginPath();
+      ctx.ellipse(px - 5, py - 3, 5, 7, 0, 0, 2 * Math.PI);
+      ctx.ellipse(px + 5, py - 3, 5, 7, 0, 0, 2 * Math.PI);
+      ctx.fill();
+
+      // Pupilas
+      const offsetX = Math.sign(pacman.x - this.x) * 2;
+      const offsetY = Math.sign(pacman.y - this.y) * 2;
+      ctx.fillStyle = 'black';
+      ctx.beginPath();
+      ctx.ellipse(px - 5 + offsetX, py - 3 + offsetY, 2, 3, 0, 0, 2 * Math.PI);
+      ctx.ellipse(px + 5 + offsetX, py - 3 + offsetY, 2, 3, 0, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+
+    move() {
+      if (this.moveCooldown > 0) {
+        this.moveCooldown--;
+        return;
+      }
+      if (this.frightened) {
+        const directions = [
+          { dx: 1, dy: 0 },
+          { dx: -1, dy: 0 },
+          { dx: 0, dy: 1 },
+          { dx: 0, dy: -1 }
+        ];
+        let possibles = directions.filter(d => canMove(this.x + d.dx, this.y + d.dy));
+        if (possibles.length === 0) return;
+        let move = possibles[Math.floor(Math.random() * possibles.length)];
+        this.x += move.dx;
+        this.y += move.dy;
+      } else {
+        const path = bfs(this.x, this.y, pacman.x, pacman.y, map);
+        if (path && path.length > 1) {
+          const nextStep = path[1];
+          this.x = nextStep.x;
+          this.y = nextStep.y;
+        }
+      }
+      this.moveCooldown = 10;
+      if (this.frightened) {
+        this.frightenedCounter--;
+        if (this.frightenedCounter <= 0) {
+          this.frightened = false;
+        }
+      }
+    }
+  }
+
+  const ghosts = [
+    new Ghost(13, 11, '#ff0000'),
+    new Ghost(14, 11, '#ffb8ff'),
+    new Ghost(12, 11, '#00ffff'),
+    new Ghost(15, 11, '#ffb852')
+  ];
+
+  function bfs(startX, startY, targetX, targetY, map) {
+    const queue = [];
+    const visited = Array.from({ length: rows }, () => Array(cols).fill(false));
+    const parent = Array.from({ length: rows }, () => Array(cols).fill(null));
+
+    queue.push({ x: startX, y: startY });
+    visited[startY][startX] = true;
+
+    while (queue.length) {
+      const { x, y } = queue.shift();
+      if (x === targetX && y === targetY) {
+        // Reconstruir caminho
+        const path = [];
+        let curX = x;
+        let curY = y;
+        while (curX !== startX || curY !== startY) {
+          path.unshift({ x: curX, y: curY });
+          const p = parent[curY][curX];
+          curX = p.x;
+          curY = p.y;
+        }
+        path.unshift({ x: startX, y: startY });
+        return path;
+      }
+
+      const neighbors = [
+        { x: x + 1, y },
+        { x: x - 1, y },
+        { x, y: y + 1 },
+        { x, y: y - 1 }
+      ];
+
+      for (const n of neighbors) {
+        if (n.x >= 0 && n.x < cols && n.y >= 0 && n.y < rows && !visited[n.y][n.x]) {
+          if (map[n.y][n.x] !== '#') {
+            queue.push(n);
+            visited[n.y][n.x] = true;
+            parent[n.y][n.x] = { x, y };
+          }
+        }
+      }
+    }
+    return null; // sem caminho
+  }
+
+  function canMove(x, y) {
+    if (x < 0 || x >= cols || y < 0 || y >= rows) return false;
+    if (map[y][x] === '#') return false;
+    return true;
+  }
+
+  function updatePacman() {
+    // Atualiza direção se possível
+    if (canMove(pacman.x + pacman.nextDx, pacman.y + pacman.nextDy)) {
+      pacman.dx = pacman.nextDx;
+      pacman.dy = pacman.nextDy;
+    }
+    if (canMove(pacman.x + pacman.dx, pacman.y + pacman.dy)) {
+      pacman.x += pacman.dx;
+      pacman.y += pacman.dy;
+    }
+  }
+
+  function drawPacman() {
+    const px = pacman.x * tileSize + tileSize / 2;
+    const py = pacman.y * tileSize + tileSize / 2;
+    const openMouth = 0.25 + 0.25 * pacman.mouthOpen;
+
+    ctx.fillStyle = "yellow";
+    ctx.beginPath();
+
+    // Animar boca
+    let angle1, angle2;
+    if (pacman.dx === 1) {
+      angle1 = (openMouth * Math.PI * 2) / 3;
+      angle2 = (2 * Math.PI) - angle1;
+    } else if (pacman.dx === -1) {
+      angle1 = Math.PI - (openMouth * Math.PI * 2) / 3;
+      angle2 = Math.PI + (openMouth * Math.PI * 2) / 3;
+    } else if (pacman.dy === 1) {
+      angle1 = Math.PI / 2 - (openMouth * Math.PI * 2) / 3;
+      angle2 = Math.PI / 2 + (openMouth * Math.PI * 2) / 3;
+    } else if (pacman.dy === -1) {
+      angle1 = (3 * Math.PI) / 2 - (openMouth * Math.PI * 2) / 3;
+      angle2 = (3 * Math.PI) / 2 + (openMouth * Math.PI * 2) / 3;
+    } else {
+      angle1 = openMouth * Math.PI;
+      angle2 = 2 * Math.PI - openMouth * Math.PI;
+    }
+
+    ctx.moveTo(px, py);
+    ctx.arc(px, py, pacman.radius, angle1, angle2, false);
+    ctx.closePath();
+    ctx.fill();
+
+    pacman.mouthOpen += pacman.mouthDir * 0.1;
+    if (pacman.mouthOpen > 1 || pacman.mouthOpen < 0) {
+      pacman.mouthDir *= -1;
+    }
+  }
+
+  function eatDots() {
+    if (map[pacman.y][pacman.x] === '.') {
+      map[pacman.y][pacman.x] = ' ';
+      score += 10;
+      playSound(440, 100);
+    }
+    if (map[pacman.y][pacman.x] === 'G') {
+      map[pacman.y][pacman.x] = ' ';
+      score += 50;
+      playSound(660, 150);
+      ghosts.forEach(g => {
+        g.frightened = true;
+        g.frightenedCounter = 300; // dura 5 segundos (60 FPS * 5)
+      });
+    }
+  }
+
+  function checkCollisions() {
+    for (const ghost of ghosts) {
+      if (ghost.x === pacman.x && ghost.y === pacman.y) {
+        if (ghost.frightened) {
+          score += 200;
+          playSound(880, 200);
+          ghost.x = 13;
+          ghost.y = 11;
+          ghost.frightened = false;
+          ghost.frightenedCounter = 0;
+        } else {
+          gameOver = true;
+          gameOverDiv.style.display = "block";
+          playSound(110, 500);
+        }
+      }
+    }
+  }
+
+  function update() {
+    if (gameOver) return;
+    updatePacman();
+    eatDots();
+    ghosts.forEach(g => g.move());
+    checkCollisions();
+    draw();
+  }
+
+  function draw() {
+    drawMap();
+    drawPacman();
+    ghosts.forEach(g => g.draw());
+    scoreboard.textContent = `Pontos: ${score}`;
+  }
+
+  function resetGame() {
+    // Resetar mapa e personagem
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) {
+        if (mapData[y][x] === '.') map[y][x] = '.';
+        else if (mapData[y][x] === 'G') map[y][x] = 'G';
+        else map[y][x] = mapData[y][x];
+      }
+    }
+    pacman.x = 13;
+    pacman.y = 23;
+    pacman.dx = 0;
+    pacman.dy = 0;
+    pacman.nextDx = 0;
+    pacman.nextDy = 0;
+    score = 0;
+    gameOver = false;
+    gameOverDiv.style.display = "none";
+
+    ghosts[0].x = 13; ghosts[0].y = 11; ghosts[0].frightened = false; ghosts[0].frightenedCounter = 0;
+    ghosts[1].x = 14; ghosts[1].y = 11; ghosts[1].frightened = false; ghosts[1].frightenedCounter = 0;
+    ghosts[2].x = 12; ghosts[2].y = 11; ghosts[2].frightened = false; ghosts[2].frightenedCounter = 0;
+    ghosts[3].x = 15; ghosts[3].y = 11; ghosts[3].frightened = false; ghosts[3].frightenedCounter = 0;
+
+    draw();
+  }
+
+  // Controle via teclado
+  window.addEventListener("keydown", e => {
+    switch (e.key) {
+      case "ArrowUp":
+        pacman.nextDx = 0;
+        pacman.nextDy = -1;
+        break;
+      case "ArrowDown":
+        pacman.nextDx = 0;
+        pacman.nextDy = 1;
+        break;
+      case "ArrowLeft":
+        pacman.nextDx = -1;
+        pacman.nextDy = 0;
+        break;
+      case "ArrowRight":
+        pacman.nextDx = 1;
+        pacman.nextDy = 0;
+        break;
+      case "r":
+      case "R":
+        if (gameOver) resetGame();
+        break;
+    }
+  });
+
+  // Loop principal
+  function gameLoop() {
+    update();
+    requestAnimationFrame(gameLoop);
+  }
+
+  resetGame();
+  gameLoop();
+})();
+</script>
+</body>
+</html>
+
